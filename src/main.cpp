@@ -36,6 +36,8 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
 
+  delay(2000);
+
   Serial.println("Starting...");
 
   pinMode(ledPin, OUTPUT);
