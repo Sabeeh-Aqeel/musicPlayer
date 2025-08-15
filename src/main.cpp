@@ -1,66 +1,60 @@
 #include <Arduino.h>
-#include <WiFi.h>
-#include <WebServer.h>
+#include <SPI.h>
+#include <SD.h>
+#include <AudioFileSourceSD.h>
+#include <AudioGeneratorMP3.h>
+#include <AudioOutputI2S.h>
 
-const char* ssid = "D-Mesh";
-const char* password = "20051640";
+// Change these to match your ESP32-C3 wiring
+#define SD_CS   10
+#define SD_SCK  4
+#define SD_MISO 5
+#define SD_MOSI 6
 
-WebServer server(80);
+// I2S pins for PCM5102
+#define I2S_BCLK  7   // Bit clock (BCK)
+#define I2S_LRCLK 8   // Left/right clock (LRCK)
+#define I2S_DOUT  9   // Data out (DIN on PCM5102)
 
-const int ledPin = 8; // Change if needed
+SPIClass spiSD(FSPI);
 
-void handleRoot() {
-  String html = "<html><head><title>ESP32-C3 LED</title></head><body>"
-                "<h1>ESP32-C3 Super Mini</h1>"
-                "<p><a href=\"/on\">Turn ON LED</a></p>"
-                "<p><a href=\"/off\">Turn OFF LED</a></p>"
-                "</body></html>";
-  server.send(200, "text/html", html);
-}
-
-void handleOn() {
-  digitalWrite(ledPin, HIGH);
-  Serial.println("LED turned ON via web");
-  server.sendHeader("Location", "/");
-  server.send(303);
-}
-
-void handleOff() {
-  digitalWrite(ledPin, LOW);
-  Serial.println("LED turned OFF via web");
-  server.sendHeader("Location", "/");
-  server.send(303);
-}
+AudioGeneratorMP3 *mp3;
+AudioFileSourceSD *file;
+AudioOutputI2S *out;
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial);
+  delay(5000);
 
-  delay(2000);
-
-  Serial.println("Starting...");
-
-  pinMode(ledPin, OUTPUT);
-
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting to Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  // Init SD card
+  spiSD.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+  if (!SD.begin(SD_CS, spiSD)) {
+    Serial.println("SD Card mount failed!");
+    while (true);
   }
+  Serial.println("SD card mounted.");
 
-  Serial.println("\nConnected!");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  // Prepare audio output
+  out = new AudioOutputI2S();
+  out->SetPinout(I2S_BCLK, I2S_LRCLK, I2S_DOUT);
+  out->SetGain(0.8); // volume
 
-  server.on("/", handleRoot);
-  server.on("/on", handleOn);
-  server.on("/off", handleOff);
 
-  server.begin();
-  Serial.println("Web server started");
+  // Open MP3 from SD
+  file = new AudioFileSourceSD("/Runaway.mp3");
+  Serial.println(file->getSize());
+  // Create MP3 decoder
+  mp3 = new AudioGeneratorMP3();
+  mp3->begin(file, out);
+  Serial.println("Playback started.");
 }
 
 void loop() {
-  server.handleClient();
+  if (mp3->isRunning()) {
+    Serial.println("RUNNING");
+    if (!mp3->loop()) {
+      mp3->stop();
+      Serial.println("Playback finished.");
+    }
+  }
 }
